@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeRunner - Multi-Lang</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs/loader.min.js"></script>
+
+    <style>
+        #editor-container { height: 60vh; border-radius: 8px; overflow: hidden; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+        .loading-pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        
+        .modal-overlay { 
+            display: none; 
+            position: fixed; 
+            top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.85); 
+            backdrop-filter: blur(6px);
+            z-index: 100; 
+        }
+        .modal-content {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%; max-width: 500px;
+        }
+
+        .header-btn {
+            height: 40px;
+            padding: 0 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        #html-output {
+            background-color: #1e293b;
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col p-4 md:p-8">
+
+    <div id="updates-modal" class="modal-overlay" onclick="closeUpdates()">
+        <div class="modal-content bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-2xl" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-blue-400">Changelog & Updates</h2>
+                <button onclick="closeUpdates()" class="text-slate-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div class="space-y-6 max-h-[60vh] overflow-y-auto pr-2 text-sm">
+                <div class="border-l-2 border-blue-500 pl-4">
+                    <p class="font-semibold text-slate-200 text-base">UI Refinement</p>
+                    <p class="text-slate-400">Cleaned up button ui and made minor improvements</p>
+                </div>
+                <div class="border-l-2 border-blue-500 pl-4">
+                    <p class="font-semibold text-slate-200 text-base">New Open And Save Functions</p>
+                    <p class="text-slate-400">Added open and save code buttons</p>
+                </div>
+            </div>
+            <button onclick="closeUpdates()" class="mt-6 w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg font-medium transition-colors">Close</button>
+        </div>
+    </div>
+
+    <header class="flex flex-wrap justify-between items-center mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight">Harri<span class="text-blue-500">Runner</span></h1>
+            <p class="text-slate-400 text-sm">Python, HTML & JS Execution</p>
+            <p class="text-slate-400 text-sm">Made By Harrison</p>
+        </div>
+        
+        <div class="flex flex-wrap gap-2">
+            <button onclick="openUpdates()" class="header-btn bg-indigo-600 hover:bg-indigo-500 text-white">
+                <span>✨ Updates</span>
+            </button>
+            <div class="w-px h-8 bg-slate-700 mx-1 self-center"></div>
+            <button onclick="openFile()" class="header-btn bg-slate-700 hover:bg-slate-600 text-white"><span>📂 Open</span></button>
+            <button onclick="saveFile()" class="header-btn bg-slate-700 hover:bg-slate-600 text-white"><span>💾 Save</span></button>
+            <div class="w-px h-8 bg-slate-700 mx-1 self-center"></div>
+            <button id="open-tab" onclick="openInNewTab()" class="header-btn bg-slate-700 hover:bg-slate-600 text-white"><span>Open Output</span></button>
+            <button id="run-button" onclick="runCode()" disabled class="header-btn bg-slate-800 text-slate-500 cursor-not-allowed">
+                <span id="btn-text">Initializing...</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex gap-4 mb-4 border-b border-slate-700">
+        <button id="btn-python" onclick="switchLanguage('python')" class="pb-2 px-4 tab-active font-medium transition-all">Python</button>
+        <button id="btn-html" onclick="switchLanguage('html')" class="pb-2 px-4 text-slate-400 font-medium transition-all">HTML</button>
+        <button id="btn-javascript" onclick="switchLanguage('javascript')" class="pb-2 px-4 text-slate-400 font-medium transition-all">JavaScript</button>
+    </div>
+
+    <main class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-grow">
+        <div id="editor-container" class="border border-slate-700 shadow-2xl"></div>
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden flex flex-col relative">
+            <div class="bg-slate-700/50 px-4 py-2 text-xs font-mono text-slate-400 uppercase tracking-widest">Output</div>
+            <div id="loading-overlay" class="p-4 font-mono text-sm">
+                <span class="loading-pulse text-slate-400">Downloading <span id="loading-lang">Python</span> assets...</span>
+            </div>
+            <div id="python-output" class="hidden p-4 font-mono text-sm overflow-auto whitespace-pre-wrap flex-grow text-[#94a3b8]"></div>
+            <iframe id="html-output" class="hidden w-full h-full border-none"></iframe>
+        </div>
+    </main>
+
+    <input type="file" id="file-input" class="hidden" onchange="handleFileSelect(event)">
+
+    <script>
+        function openUpdates() { document.getElementById('updates-modal').style.display = 'block'; }
+        function closeUpdates() { document.getElementById('updates-modal').style.display = 'none'; }
+        
+        let editor, pyodide, currentLang = 'python', pythonReady = false;
+
+        const defaultCode = {
+            python: "import sys\nprint('Hello from Python!')",
+            html: "<h1 style='color: #60a5fa;'>Hello World</h1>\n<p style='color: #94a3b8;'>HTML Preview is active.</p>",
+            javascript: "const msg = 'Hello from JS!';\ndocument.body.innerHTML = `<h1 style='color: #fbbf24;'>${msg}</h1>`;\nconsole.log(msg);"
+        };
+
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            editor = monaco.editor.create(document.getElementById('editor-container'), {
+                value: defaultCode.python, language: 'python', theme: 'vs-dark', automaticLayout: true
+            });
+        });
+
+        async function initPyodide() {
+            try {
+                pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/" });
+                pythonReady = true;
+                const runBtn = document.getElementById('run-button');
+                runBtn.disabled = false;
+                runBtn.classList.replace('bg-slate-800', 'bg-blue-600');
+                runBtn.classList.replace('text-slate-500', 'text-white');
+                runBtn.classList.add('hover:bg-blue-500');
+                runBtn.classList.remove('cursor-not-allowed');
+                document.getElementById('btn-text').innerText = "Run Code";
+                if (currentLang === 'python') showReadyState('Python');
+            } catch (err) {
+                document.getElementById('python-output').innerHTML = `<span class="text-red-400">Error: ${err.message}</span>`;
+            }
+        }
+        initPyodide();
+
+        function showReadyState(langName) {
+            document.getElementById('loading-overlay').classList.add('hidden');
+            const pyOut = document.getElementById('python-output');
+            const htmlOut = document.getElementById('html-output');
+            if (langName === 'Python') {
+                pyOut.classList.remove('hidden');
+                pyOut.style.color = "#94a3b8";
+                pyOut.innerText = "Python Ready."; 
+            } else {
+                htmlOut.classList.remove('hidden');
+                const readyHtml = `<html><body style="background:#1e293b; color:#94a3b8; font-family:monospace; padding:1rem; margin:0;">${langName} Ready.</body></html>`;
+                htmlOut.srcdoc = readyHtml;
+            }
+        }
+
+        function switchLanguage(lang) {
+            currentLang = lang;
+            const model = editor.getModel();
+            const overlay = document.getElementById('loading-overlay');
+            const pyOut = document.getElementById('python-output');
+            const htmlOut = document.getElementById('html-output');
+            const langName = lang === 'javascript' ? 'JavaScript' : (lang === 'html' ? 'HTML' : 'Python');
+
+            overlay.classList.remove('hidden');
+            pyOut.classList.add('hidden');
+            htmlOut.classList.add('hidden');
+            document.getElementById('loading-lang').innerText = langName;
+
+            setTimeout(() => {
+                const activeLangName = currentLang === 'javascript' ? 'JavaScript' : (currentLang === 'html' ? 'HTML' : 'Python');
+                showReadyState(activeLangName);
+            }, 1200);
+
+            ['btn-python', 'btn-html', 'btn-javascript'].forEach(id => {
+                document.getElementById(id).classList.toggle('tab-active', id === `btn-${lang}`);
+                document.getElementById(id).classList.toggle('text-slate-400', id !== `btn-${lang}`);
+            });
+
+            monaco.editor.setModelLanguage(model, lang);
+            editor.setValue(defaultCode[lang]);
+        }
+
+        async function runCode() {
+            const code = editor.getValue();
+            const pyOut = document.getElementById('python-output');
+            const htmlOut = document.getElementById('html-output');
+            if (currentLang === 'python') {
+                if (!pyodide) return;
+                pyOut.style.color = "#e2e8f0";
+                pyOut.innerText = "Running...\n";
+                try {
+                    await pyodide.runPythonAsync(`import sys, io\nsys.stdout = io.StringIO()`);
+                    await pyodide.runPythonAsync(code);
+                    pyOut.innerText = pyodide.runPython("sys.stdout.getvalue()") || "Success (no output).";
+                } catch (err) { pyOut.innerHTML = `<span class="text-red-400">${err}</span>`; }
+            } else {
+                const darkStyle = `<style>body{background:#1e293b; color:white; font-family: sans-serif; padding: 1rem;}</style>`;
+                const content = currentLang === 'html' ? darkStyle + code : `<html>${darkStyle}<body><script>${code}<\/script></body></html>`;
+                htmlOut.srcdoc = content;
+            }
+        }
+
+        function saveFile() {
+            const code = editor.getValue();
+            const extensions = { python: 'py', html: 'html', javascript: 'js' };
+            const blob = new Blob([code], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `script.${extensions[currentLang]}`;
+            a.click(); URL.revokeObjectURL(url);
+        }
+
+        function openFile() { document.getElementById('file-input').click(); }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const ext = file.name.split('.').pop().toLowerCase();
+                let lang = (ext === 'html' || ext === 'htm') ? 'html' : (ext === 'js' ? 'javascript' : 'python');
+                switchLanguage(lang);
+                editor.setValue(e.target.result);
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        function openInNewTab() {
+            const code = editor.getValue();
+            let content = currentLang === 'python' ? 
+                `<html><body style="background:#1e293b; color:white; font-family:monospace; padding:20px;"><h1>Python Output:</h1><pre>${document.getElementById('python-output').innerText}</pre></body></html>` :
+                (currentLang === 'html' ? code : `<html><body style="background:#1e293b; color:white;"><script>${code}<\/script></body></html>`);
+            const win = window.open('about:blank', '_blank');
+            win.document.open(); win.document.write(content); win.document.close();
+        }
+    </script>
+</body>
+</html>
